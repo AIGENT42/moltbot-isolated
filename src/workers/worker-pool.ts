@@ -8,10 +8,10 @@
  * - Monitor worker health
  */
 
-import { fork, type ChildProcess } from 'node:child_process';
-import { EventEmitter } from 'node:events';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { fork, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 import {
   type GatewayToWorkerMessageInput,
@@ -19,8 +19,8 @@ import {
   type WorkerToGatewayMessage,
   WorkerToGatewayMessageType,
   createGatewayMessage,
-} from './ipc-protocol.js';
-import { StickyRouter } from './sticky-router.js';
+} from "./ipc-protocol.js";
+import { StickyRouter } from "./sticky-router.js";
 import {
   DEFAULT_WORKER_POOL_CONFIG,
   type UserId,
@@ -32,8 +32,8 @@ import {
   type WorkerRequest,
   type WorkerResponse,
   WorkerState,
-} from './types.js';
-import { SandboxManager } from './worker-sandbox.js';
+} from "./types.js";
+import { SandboxManager } from "./worker-sandbox.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,14 +60,14 @@ interface PendingRequest {
 
 /** Worker pool events */
 export interface WorkerPoolEvents {
-  'worker:ready': (workerId: WorkerId) => void;
-  'worker:crash': (workerId: WorkerId, error: Error) => void;
-  'worker:restart': (workerId: WorkerId, attempt: number) => void;
-  'worker:stopped': (workerId: WorkerId) => void;
-  'request:complete': (requestId: string, duration: number) => void;
-  'request:failed': (requestId: string, error: string) => void;
-  'pool:ready': () => void;
-  'pool:degraded': (healthyCount: number, totalCount: number) => void;
+  "worker:ready": (workerId: WorkerId) => void;
+  "worker:crash": (workerId: WorkerId, error: Error) => void;
+  "worker:restart": (workerId: WorkerId, attempt: number) => void;
+  "worker:stopped": (workerId: WorkerId) => void;
+  "request:complete": (requestId: string, duration: number) => void;
+  "request:failed": (requestId: string, error: string) => void;
+  "pool:ready": () => void;
+  "pool:degraded": (healthyCount: number, totalCount: number) => void;
 }
 
 /**
@@ -93,7 +93,7 @@ export class WorkerPool extends EventEmitter {
    */
   async start(): Promise<void> {
     if (this.started) {
-      throw new Error('Worker pool already started');
+      throw new Error("Worker pool already started");
     }
 
     console.log(`[WorkerPool] Starting with ${this.config.workerCount} workers`);
@@ -117,7 +117,7 @@ export class WorkerPool extends EventEmitter {
     await Promise.all(workerIds.map((id) => this.spawnWorker(id)));
 
     this.started = true;
-    this.emit('pool:ready');
+    this.emit("pool:ready");
     console.log(`[WorkerPool] All workers ready`);
   }
 
@@ -133,36 +133,34 @@ export class WorkerPool extends EventEmitter {
     console.log(`[WorkerPool] Stopping (grace: ${gracePeriod}ms)`);
 
     // Send shutdown to all workers
-    const shutdownPromises = Array.from(this.workers.values()).map(
-      async (worker) => {
-        if (worker.process && worker.state !== WorkerState.Stopped) {
-          this.sendToWorker(worker.workerId, {
-            type: GatewayToWorkerMessageType.Shutdown,
-            gracePeriod,
-          });
+    const shutdownPromises = Array.from(this.workers.values()).map(async (worker) => {
+      if (worker.process && worker.state !== WorkerState.Stopped) {
+        this.sendToWorker(worker.workerId, {
+          type: GatewayToWorkerMessageType.Shutdown,
+          gracePeriod,
+        });
 
-          // Wait for graceful shutdown or force kill
-          await new Promise<void>((resolve) => {
-            const timeout = setTimeout(() => {
-              if (worker.process) {
-                worker.process.kill('SIGKILL');
-              }
-              resolve();
-            }, gracePeriod + 1000);
-
+        // Wait for graceful shutdown or force kill
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
             if (worker.process) {
-              worker.process.once('exit', () => {
-                clearTimeout(timeout);
-                resolve();
-              });
-            } else {
+              worker.process.kill("SIGKILL");
+            }
+            resolve();
+          }, gracePeriod + 1000);
+
+          if (worker.process) {
+            worker.process.once("exit", () => {
               clearTimeout(timeout);
               resolve();
-            }
-          });
-        }
+            });
+          } else {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
       }
-    );
+    });
 
     await Promise.all(shutdownPromises);
 
@@ -177,7 +175,7 @@ export class WorkerPool extends EventEmitter {
    */
   async sendRequest(request: WorkerRequest): Promise<WorkerResponse> {
     if (!this.started) {
-      throw new Error('Worker pool not started');
+      throw new Error("Worker pool not started");
     }
 
     // Route request to worker
@@ -192,7 +190,7 @@ export class WorkerPool extends EventEmitter {
       // Try to find an alternative healthy worker
       const healthyWorker = this.findHealthyWorker();
       if (!healthyWorker) {
-        throw new Error('No healthy workers available');
+        throw new Error("No healthy workers available");
       }
       // Force assign this user to the healthy worker temporarily
       this.router.forceAssign(request.userId, healthyWorker.workerId);
@@ -207,7 +205,7 @@ export class WorkerPool extends EventEmitter {
    */
   private sendRequestToWorker(
     worker: WorkerInstance,
-    request: WorkerRequest
+    request: WorkerRequest,
   ): Promise<WorkerResponse> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -265,20 +263,18 @@ export class WorkerPool extends EventEmitter {
           cpuUsage: 0,
           uptime: 0,
           errorCount: 0,
-        }
+        },
     );
 
     const healthyWorkers = workers.filter(
-      (w) => w.state === WorkerState.Ready || w.state === WorkerState.Busy
+      (w) => w.state === WorkerState.Ready || w.state === WorkerState.Busy,
     ).length;
 
-    const busyWorkers = workers.filter(
-      (w) => w.state === WorkerState.Busy
-    ).length;
+    const busyWorkers = workers.filter((w) => w.state === WorkerState.Busy).length;
 
     const queuedRequests = Array.from(this.workers.values()).reduce(
       (sum, w) => sum + w.pendingRequests.size,
-      0
+      0,
     );
 
     return {
@@ -317,9 +313,9 @@ export class WorkerPool extends EventEmitter {
     this.workers.set(workerId, worker);
 
     // Spawn the child process
-    const workerPath = join(__dirname, 'worker-process.js');
+    const workerPath = join(__dirname, "worker-process.js");
     const child = fork(workerPath, [], {
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {
         ...process.env,
         ...sandbox.getEnvironment(),
@@ -329,28 +325,28 @@ export class WorkerPool extends EventEmitter {
     worker.process = child;
 
     // Pipe stdout/stderr
-    child.stdout?.on('data', (data) => {
+    child.stdout?.on("data", (data) => {
       console.log(`[${workerId}] ${data.toString().trim()}`);
     });
 
-    child.stderr?.on('data', (data) => {
+    child.stderr?.on("data", (data) => {
       console.error(`[${workerId}] ${data.toString().trim()}`);
     });
 
     // Handle messages from worker
-    child.on('message', (msg: WorkerToGatewayMessage) => {
+    child.on("message", (msg: WorkerToGatewayMessage) => {
       this.handleWorkerMessage(workerId, msg);
     });
 
     // Handle worker exit
-    child.on('exit', (code, signal) => {
+    child.on("exit", (code, signal) => {
       this.handleWorkerExit(workerId, code, signal);
     });
 
-    child.on('error', (error) => {
+    child.on("error", (error) => {
       console.error(`[${workerId}] Process error:`, error);
       worker.state = WorkerState.Crashed;
-      this.emit('worker:crash', workerId, error);
+      this.emit("worker:crash", workerId, error);
     });
 
     // Send init message
@@ -396,17 +392,14 @@ export class WorkerPool extends EventEmitter {
   /**
    * Handle message from worker
    */
-  private handleWorkerMessage(
-    workerId: WorkerId,
-    msg: WorkerToGatewayMessage
-  ): void {
+  private handleWorkerMessage(workerId: WorkerId, msg: WorkerToGatewayMessage): void {
     const worker = this.workers.get(workerId);
     if (!worker) return;
 
     switch (msg.type) {
       case WorkerToGatewayMessageType.Ready:
         worker.state = WorkerState.Ready;
-        this.emit('worker:ready', workerId);
+        this.emit("worker:ready", workerId);
         break;
 
       case WorkerToGatewayMessageType.Response:
@@ -438,9 +431,9 @@ export class WorkerPool extends EventEmitter {
 
       case WorkerToGatewayMessageType.Event:
         // Handle events
-        if (msg.event.type === 'stopped') {
+        if (msg.event.type === "stopped") {
           worker.state = WorkerState.Stopped;
-          this.emit('worker:stopped', workerId);
+          this.emit("worker:stopped", workerId);
         }
         break;
     }
@@ -460,28 +453,22 @@ export class WorkerPool extends EventEmitter {
     worker.pendingRequests.delete(response.requestId);
 
     if (response.success) {
-      this.emit('request:complete', response.requestId, response.duration);
+      this.emit("request:complete", response.requestId, response.duration);
       pending.resolve(response);
     } else {
-      this.emit('request:failed', response.requestId, response.error ?? 'Unknown');
-      pending.reject(new Error(response.error ?? 'Request failed'));
+      this.emit("request:failed", response.requestId, response.error ?? "Unknown");
+      pending.reject(new Error(response.error ?? "Request failed"));
     }
   }
 
   /**
    * Handle worker exit
    */
-  private handleWorkerExit(
-    workerId: WorkerId,
-    code: number | null,
-    signal: string | null
-  ): void {
+  private handleWorkerExit(workerId: WorkerId, code: number | null, signal: string | null): void {
     const worker = this.workers.get(workerId);
     if (!worker) return;
 
-    console.log(
-      `[${workerId}] Exited (code: ${code}, signal: ${signal})`
-    );
+    console.log(`[${workerId}] Exited (code: ${code}, signal: ${signal})`);
 
     // Reject all pending requests
     for (const [requestId, pending] of worker.pendingRequests) {
@@ -500,16 +487,12 @@ export class WorkerPool extends EventEmitter {
 
     // Check if we should restart
     const now = Date.now();
-    worker.restartTimes = worker.restartTimes.filter(
-      (t) => now - t < this.config.restartWindow
-    );
+    worker.restartTimes = worker.restartTimes.filter((t) => now - t < this.config.restartWindow);
 
     if (worker.restartTimes.length >= this.config.maxRestartAttempts) {
-      console.error(
-        `[${workerId}] Too many restarts, not restarting`
-      );
+      console.error(`[${workerId}] Too many restarts, not restarting`);
       worker.state = WorkerState.Crashed;
-      this.emit('worker:crash', workerId, new Error('Too many restarts'));
+      this.emit("worker:crash", workerId, new Error("Too many restarts"));
       this.checkPoolHealth();
       return;
     }
@@ -521,7 +504,7 @@ export class WorkerPool extends EventEmitter {
     setTimeout(async () => {
       if (!this.stopping) {
         console.log(`[${workerId}] Restarting (attempt ${worker.restartCount})`);
-        this.emit('worker:restart', workerId, worker.restartCount);
+        this.emit("worker:restart", workerId, worker.restartCount);
         try {
           await this.spawnWorker(workerId);
         } catch (error) {
@@ -534,10 +517,7 @@ export class WorkerPool extends EventEmitter {
   /**
    * Send message to worker
    */
-  private sendToWorker(
-    workerId: WorkerId,
-    message: GatewayToWorkerMessageInput
-  ): void {
+  private sendToWorker(workerId: WorkerId, message: GatewayToWorkerMessageInput): void {
     const worker = this.workers.get(workerId);
     if (!worker?.process) {
       throw new Error(`Worker ${workerId} not running`);
@@ -552,7 +532,7 @@ export class WorkerPool extends EventEmitter {
   private checkPoolHealth(): void {
     const status = this.getStatus();
     if (status.healthyWorkers < status.totalWorkers) {
-      this.emit('pool:degraded', status.healthyWorkers, status.totalWorkers);
+      this.emit("pool:degraded", status.healthyWorkers, status.totalWorkers);
     }
   }
 
@@ -565,11 +545,8 @@ export class WorkerPool extends EventEmitter {
 }
 
 // Type augmentation for EventEmitter
-export declare interface WorkerPool {
-  on<K extends keyof WorkerPoolEvents>(
-    event: K,
-    listener: WorkerPoolEvents[K]
-  ): this;
+export interface WorkerPool {
+  on<K extends keyof WorkerPoolEvents>(event: K, listener: WorkerPoolEvents[K]): this;
   emit<K extends keyof WorkerPoolEvents>(
     event: K,
     ...args: Parameters<WorkerPoolEvents[K]>
