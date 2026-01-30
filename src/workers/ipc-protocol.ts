@@ -11,36 +11,36 @@ import type {
   WorkerId,
   WorkerRequest,
   WorkerResponse,
-} from './types.js';
+} from "./types.js";
 
 /** IPC message types from gateway to worker */
 export enum GatewayToWorkerMessageType {
   /** Initialize worker with config */
-  Init = 'init',
+  Init = "init",
   /** Send request to worker */
-  Request = 'request',
+  Request = "request",
   /** Request health status */
-  HealthCheck = 'health:check',
+  HealthCheck = "health:check",
   /** Graceful shutdown */
-  Shutdown = 'shutdown',
+  Shutdown = "shutdown",
   /** Force kill (last resort) */
-  Kill = 'kill',
+  Kill = "kill",
 }
 
 /** IPC message types from worker to gateway */
 export enum WorkerToGatewayMessageType {
   /** Worker is ready */
-  Ready = 'ready',
+  Ready = "ready",
   /** Response to request */
-  Response = 'response',
+  Response = "response",
   /** Health status report */
-  Health = 'health',
+  Health = "health",
   /** Worker event notification */
-  Event = 'event',
+  Event = "event",
   /** Worker error */
-  Error = 'error',
+  Error = "error",
   /** Heartbeat */
-  Heartbeat = 'heartbeat',
+  Heartbeat = "heartbeat",
 }
 
 /** Base IPC message structure */
@@ -83,6 +83,14 @@ export type GatewayToWorkerMessage =
   | HealthCheckMessage
   | ShutdownMessage
   | KillMessage;
+
+/** Gateway message without timestamp (for use with createGatewayMessage) */
+export type GatewayToWorkerMessageInput =
+  | Omit<InitMessage, "ts">
+  | Omit<RequestMessage, "ts">
+  | Omit<HealthCheckMessage, "ts">
+  | Omit<ShutdownMessage, "ts">
+  | Omit<KillMessage, "ts">;
 
 // Worker -> Gateway messages
 
@@ -127,47 +135,48 @@ export type WorkerToGatewayMessage =
   | ErrorMessage
   | HeartbeatMessage;
 
+/** Worker message without timestamp (for use with createWorkerMessage) */
+export type WorkerToGatewayMessageInput =
+  | Omit<ReadyMessage, "ts">
+  | Omit<ResponseMessage, "ts">
+  | Omit<HealthMessage, "ts">
+  | Omit<EventMessage, "ts">
+  | Omit<ErrorMessage, "ts">
+  | Omit<HeartbeatMessage, "ts">;
+
 /** Create a gateway->worker message */
-export function createGatewayMessage<T extends GatewayToWorkerMessage>(
-  message: Omit<T, 'ts'>
-): T {
+export function createGatewayMessage(message: GatewayToWorkerMessageInput): GatewayToWorkerMessage {
   return {
     ...message,
     ts: Date.now(),
-  } as T;
+  } as GatewayToWorkerMessage;
 }
 
 /** Create a worker->gateway message */
-export function createWorkerMessage<T extends WorkerToGatewayMessage>(
-  message: Omit<T, 'ts'>
-): T {
+export function createWorkerMessage(message: WorkerToGatewayMessageInput): WorkerToGatewayMessage {
   return {
     ...message,
     ts: Date.now(),
-  } as T;
+  } as WorkerToGatewayMessage;
 }
 
 /** Type guard for gateway messages */
 export function isGatewayMessage(msg: unknown): msg is GatewayToWorkerMessage {
-  if (!msg || typeof msg !== 'object') return false;
+  if (!msg || typeof msg !== "object") return false;
   const m = msg as Record<string, unknown>;
   return (
-    typeof m.type === 'string' &&
-    Object.values(GatewayToWorkerMessageType).includes(
-      m.type as GatewayToWorkerMessageType
-    )
+    typeof m.type === "string" &&
+    Object.values(GatewayToWorkerMessageType).includes(m.type as GatewayToWorkerMessageType)
   );
 }
 
 /** Type guard for worker messages */
 export function isWorkerMessage(msg: unknown): msg is WorkerToGatewayMessage {
-  if (!msg || typeof msg !== 'object') return false;
+  if (!msg || typeof msg !== "object") return false;
   const m = msg as Record<string, unknown>;
   return (
-    typeof m.type === 'string' &&
-    Object.values(WorkerToGatewayMessageType).includes(
-      m.type as WorkerToGatewayMessageType
-    )
+    typeof m.type === "string" &&
+    Object.values(WorkerToGatewayMessageType).includes(m.type as WorkerToGatewayMessageType)
   );
 }
 
@@ -179,35 +188,35 @@ export interface IPCSender {
 /** IPC channel interface for receiving messages */
 export interface IPCReceiver {
   on(
-    event: 'message',
-    listener: (message: GatewayToWorkerMessage | WorkerToGatewayMessage) => void
+    event: "message",
+    listener: (message: GatewayToWorkerMessage | WorkerToGatewayMessage) => void,
   ): void;
   off(
-    event: 'message',
-    listener: (message: GatewayToWorkerMessage | WorkerToGatewayMessage) => void
+    event: "message",
+    listener: (message: GatewayToWorkerMessage | WorkerToGatewayMessage) => void,
   ): void;
 }
 
 /** Utility to wait for a specific message type */
 export function waitForMessage<T extends WorkerToGatewayMessage>(
   receiver: IPCReceiver,
-  type: T['type'],
-  timeout: number
+  type: T["type"],
+  timeout: number,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      receiver.off('message', handler);
+      receiver.off("message", handler);
       reject(new Error(`Timeout waiting for message type: ${type}`));
     }, timeout);
 
     function handler(msg: GatewayToWorkerMessage | WorkerToGatewayMessage) {
       if (msg.type === type) {
         clearTimeout(timer);
-        receiver.off('message', handler);
+        receiver.off("message", handler);
         resolve(msg as T);
       }
     }
 
-    receiver.on('message', handler);
+    receiver.on("message", handler);
   });
 }
