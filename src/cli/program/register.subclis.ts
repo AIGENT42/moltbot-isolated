@@ -227,6 +227,14 @@ const entries: SubCliEntry[] = [
       mod.registerUpdateCli(program);
     },
   },
+  {
+    name: "workers",
+    description: "Manage worker pool with sticky routing",
+    register: async (program) => {
+      const mod = await import("../workers-cli.js");
+      mod.registerWorkersCli(program);
+    },
+  },
 ];
 
 function removeCommand(program: Command, command: Command) {
