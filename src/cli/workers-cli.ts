@@ -168,7 +168,7 @@ export function registerWorkersCli(program: Command): void {
       'Sandbox base directory',
       '/tmp/moltbot-workers'
     )
-    .option('-t, --timeout <ms>', 'Run duration (0 = indefinite)', '5000')
+    .option('-t, --timeout <ms>', 'Run duration (0 = indefinite)', '0')
     .action(async (opts) => {
       try {
         await runDemo({
