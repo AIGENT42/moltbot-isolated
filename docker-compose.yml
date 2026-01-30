@@ -27,6 +27,47 @@ services:
         "${CLAWDBOT_GATEWAY_PORT:-18789}"
       ]
 
+  moltbot-workers:
+    image: ${CLAWDBOT_IMAGE:-moltbot:local}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      CLAWDBOT_GATEWAY_TOKEN: ${CLAWDBOT_GATEWAY_TOKEN}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
+    volumes:
+      - ${CLAWDBOT_CONFIG_DIR}:/home/node/.clawdbot
+      - ${CLAWDBOT_WORKSPACE_DIR}:/home/node/clawd
+      - ${CLAWDBOT_WORKERS_DIR:-/tmp/moltbot-workers}:/home/node/workers
+    ports:
+      - "${CLAWDBOT_GATEWAY_PORT:-18789}:18789"
+      - "${CLAWDBOT_BRIDGE_PORT:-18790}:18790"
+      - "${CLAWDBOT_WORKERS_DEV_PORT:-18792}:18792"
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18792/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "workers",
+        "demo",
+        "--workers",
+        "${CLAWDBOT_WORKERS_COUNT:-4}",
+        "--sandbox-dir",
+        "/home/node/workers",
+        "--dev-port",
+        "18792",
+        "--bind",
+        "0.0.0.0"
+      ]
+
   moltbot-cli:
     image: ${CLAWDBOT_IMAGE:-moltbot:local}
     environment:
