@@ -84,6 +84,13 @@ export type GatewayToWorkerMessage =
   | ShutdownMessage
   | KillMessage;
 
+/** Helper type to distribute Omit over union members */
+export type GatewayToWorkerMessageInput = {
+  [K in GatewayToWorkerMessageType]: Extract<GatewayToWorkerMessage, { type: K }> extends infer M
+    ? Omit<M, 'ts'>
+    : never;
+}[GatewayToWorkerMessageType];
+
 // Worker -> Gateway messages
 
 export interface ReadyMessage extends IPCMessageBase {
@@ -127,24 +134,31 @@ export type WorkerToGatewayMessage =
   | ErrorMessage
   | HeartbeatMessage;
 
+/** Helper type to distribute Omit over union members */
+export type WorkerToGatewayMessageInput = {
+  [K in WorkerToGatewayMessageType]: Extract<WorkerToGatewayMessage, { type: K }> extends infer M
+    ? Omit<M, 'ts'>
+    : never;
+}[WorkerToGatewayMessageType];
+
 /** Create a gateway->worker message */
-export function createGatewayMessage<T extends GatewayToWorkerMessage>(
-  message: Omit<T, 'ts'>
-): T {
+export function createGatewayMessage(
+  message: GatewayToWorkerMessageInput
+): GatewayToWorkerMessage {
   return {
     ...message,
     ts: Date.now(),
-  } as T;
+  } as GatewayToWorkerMessage;
 }
 
 /** Create a worker->gateway message */
-export function createWorkerMessage<T extends WorkerToGatewayMessage>(
-  message: Omit<T, 'ts'>
-): T {
+export function createWorkerMessage(
+  message: WorkerToGatewayMessageInput
+): WorkerToGatewayMessage {
   return {
     ...message,
     ts: Date.now(),
-  } as T;
+  } as WorkerToGatewayMessage;
 }
 
 /** Type guard for gateway messages */
