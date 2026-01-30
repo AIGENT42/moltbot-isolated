@@ -11,6 +11,7 @@ import {
   GatewayToWorkerMessageType,
   type RequestMessage,
   WorkerToGatewayMessageType,
+  type WorkerToGatewayMessageInput,
   createWorkerMessage,
 } from './ipc-protocol.js';
 import {
@@ -47,11 +48,9 @@ const state: WorkerProcessState = {
 };
 
 /** Send message to gateway */
-function send(
-  message: Parameters<typeof createWorkerMessage>[0]
-): void {
+function send(message: WorkerToGatewayMessageInput): void {
   if (process.send) {
-    process.send(createWorkerMessage(message as any));
+    process.send(createWorkerMessage(message));
   }
 }
 

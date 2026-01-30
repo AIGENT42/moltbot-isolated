@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  type GatewayToWorkerMessage,
+  type GatewayToWorkerMessageInput,
   GatewayToWorkerMessageType,
   type WorkerToGatewayMessage,
   WorkerToGatewayMessageType,
@@ -536,14 +536,14 @@ export class WorkerPool extends EventEmitter {
    */
   private sendToWorker(
     workerId: WorkerId,
-    message: Omit<GatewayToWorkerMessage, 'ts'>
+    message: GatewayToWorkerMessageInput
   ): void {
     const worker = this.workers.get(workerId);
     if (!worker?.process) {
       throw new Error(`Worker ${workerId} not running`);
     }
 
-    worker.process.send(createGatewayMessage(message as any));
+    worker.process.send(createGatewayMessage(message));
   }
 
   /**
@@ -565,7 +565,7 @@ export class WorkerPool extends EventEmitter {
 }
 
 // Type augmentation for EventEmitter
-declare interface WorkerPool {
+export declare interface WorkerPool {
   on<K extends keyof WorkerPoolEvents>(
     event: K,
     listener: WorkerPoolEvents[K]
