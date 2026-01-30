@@ -84,10 +84,13 @@ export type GatewayToWorkerMessage =
   | ShutdownMessage
   | KillMessage;
 
-/** Helper type to distribute Omit over union members */
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-
-export type GatewayToWorkerMessageInput = DistributiveOmit<GatewayToWorkerMessage, "ts">;
+/** Input types for creating messages (without ts field which is auto-added) */
+export type GatewayToWorkerMessageInput =
+  | Omit<InitMessage, "ts">
+  | Omit<RequestMessage, "ts">
+  | Omit<HealthCheckMessage, "ts">
+  | Omit<ShutdownMessage, "ts">
+  | Omit<KillMessage, "ts">;
 
 // Worker -> Gateway messages
 
@@ -132,7 +135,13 @@ export type WorkerToGatewayMessage =
   | ErrorMessage
   | HeartbeatMessage;
 
-export type WorkerToGatewayMessageInput = DistributiveOmit<WorkerToGatewayMessage, "ts">;
+export type WorkerToGatewayMessageInput =
+  | Omit<ReadyMessage, "ts">
+  | Omit<ResponseMessage, "ts">
+  | Omit<HealthMessage, "ts">
+  | Omit<EventMessage, "ts">
+  | Omit<ErrorMessage, "ts">
+  | Omit<HeartbeatMessage, "ts">;
 
 /** Create a gateway->worker message */
 export function createGatewayMessage(message: GatewayToWorkerMessageInput): GatewayToWorkerMessage {
