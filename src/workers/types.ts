@@ -5,6 +5,16 @@
 /** Unique identifier for a worker instance */
 export type WorkerId = string;
 
+/** Instance private keys for a worker */
+export interface InstanceKeys {
+  /** 32-byte private key for cryptographic operations */
+  privateKey: Buffer;
+  /** Unique instance identifier (workerId + timestamp + random) */
+  instanceId: string;
+  /** Fingerprint of the private key (first 8 bytes hex) for logging */
+  fingerprint: string;
+}
+
 /** Unique identifier for a user (used for sticky routing) */
 export type UserId = string;
 
@@ -61,6 +71,10 @@ export interface WorkerConfig {
   maxMemory: number;
   /** Maximum requests before restart */
   maxRequests: number;
+  /** Instance ID (unique per worker lifecycle) */
+  instanceId?: string;
+  /** Instance key fingerprint for logging/debugging */
+  keyFingerprint?: string;
 }
 
 /** Worker pool configuration */
