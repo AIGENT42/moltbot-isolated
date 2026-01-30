@@ -38,6 +38,49 @@ import { SandboxManager } from "./worker-sandbox.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+/**
+ * Environment variables that should NOT be passed to worker processes.
+ * Workers get isolated credentials via their sandbox paths instead.
+ */
+const SENSITIVE_ENV_PATTERNS = [
+  // API keys and tokens
+  /^ANTHROPIC_API_KEY$/i,
+  /^OPENAI_API_KEY$/i,
+  /^CLAUDE_API_KEY$/i,
+  /^DISCORD_TOKEN$/i,
+  /^DISCORD_BOT_TOKEN$/i,
+  /^TELEGRAM_BOT_TOKEN$/i,
+  /^SLACK_BOT_TOKEN$/i,
+  /^SLACK_SIGNING_SECRET$/i,
+  // OAuth and credentials
+  /^CLAWDBOT_OAUTH_DIR$/i, // Will be set by sandbox
+  /^GITHUB_TOKEN$/i,
+  /^GH_TOKEN$/i,
+  /^NPM_TOKEN$/i,
+  // Generic sensitive patterns
+  /_TOKEN$/i,
+  /_SECRET$/i,
+  /_API_KEY$/i,
+  /_PASSWORD$/i,
+  /_PRIVATE_KEY$/i,
+];
+
+/**
+ * Filter out sensitive environment variables from parent process.
+ * Workers get their own isolated credentials via sandbox paths.
+ */
+function filterSensitiveEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const filtered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    const isSensitive = SENSITIVE_ENV_PATTERNS.some((pattern) => pattern.test(key));
+    if (!isSensitive) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
+
 /** Worker instance state */
 interface WorkerInstance {
   workerId: WorkerId;
@@ -293,9 +336,14 @@ export class WorkerPool extends EventEmitter {
   private async spawnWorker(workerId: WorkerId): Promise<void> {
     const sandbox = await this.sandboxManager.getSandbox(workerId);
 
+    // Get instance keys (generated during sandbox.initialize())
+    const instanceKeys = await sandbox.getInstanceKeys();
+
     const config: WorkerConfig = {
       workerId,
       sandboxRoot: sandbox.paths.root,
+      instanceId: instanceKeys.instanceId,
+      keyFingerprint: instanceKeys.fingerprint,
       ...this.config.workerConfig,
     };
 
@@ -312,12 +360,12 @@ export class WorkerPool extends EventEmitter {
 
     this.workers.set(workerId, worker);
 
-    // Spawn the child process
+    // Spawn the child process with filtered environment
     const workerPath = join(__dirname, "worker-process.js");
     const child = fork(workerPath, [], {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {
-        ...process.env,
+        ...filterSensitiveEnv(process.env),
         ...sandbox.getEnvironment(),
       },
     });

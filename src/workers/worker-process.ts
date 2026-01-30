@@ -303,7 +303,9 @@ async function handleInit(config: WorkerConfig): Promise<void> {
     workerId: config.workerId,
   });
 
-  console.log(`[Worker ${config.workerId}] Ready (pid: ${process.pid})`);
+  const keyInfo = config.keyFingerprint ? `, key: ${config.keyFingerprint}` : '';
+  const instanceInfo = config.instanceId ? ` [${config.instanceId}]` : '';
+  console.log(`[Worker ${config.workerId}] Ready (pid: ${process.pid}${keyInfo})${instanceInfo}`);
 }
 
 /** Handle shutdown */

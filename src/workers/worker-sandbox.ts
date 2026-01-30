@@ -11,8 +11,9 @@
  */
 
 import { mkdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import type { WorkerId } from './types.js';
+import type { WorkerId, InstanceKeys } from './types.js';
 
 /** Sandbox directory structure */
 export interface SandboxPaths {
@@ -28,6 +29,12 @@ export interface SandboxPaths {
   state: string;
   /** Logs directory */
   logs: string;
+  /** Credentials directory (OAuth tokens, API keys) */
+  credentials: string;
+  /** Config directory */
+  config: string;
+  /** Keys directory (instance private keys) */
+  keys: string;
 }
 
 /** Sandbox metadata */
@@ -36,6 +43,8 @@ export interface SandboxMetadata {
   createdAt: number;
   lastAccessed: number;
   version: number;
+  /** Fingerprint of instance private key (first 8 bytes hex) */
+  keyFingerprint?: string;
 }
 
 const SANDBOX_VERSION = 1;
@@ -51,18 +60,22 @@ export class WorkerSandbox {
 
   constructor(workerId: WorkerId, baseDir: string) {
     this.workerId = workerId;
+    const workerRoot = join(baseDir, workerId);
     this.paths = {
-      root: join(baseDir, workerId),
-      sessions: join(baseDir, workerId, 'sessions'),
-      temp: join(baseDir, workerId, 'temp'),
-      cache: join(baseDir, workerId, 'cache'),
-      state: join(baseDir, workerId, 'state'),
-      logs: join(baseDir, workerId, 'logs'),
+      root: workerRoot,
+      sessions: join(workerRoot, 'sessions'),
+      temp: join(workerRoot, 'temp'),
+      cache: join(workerRoot, 'cache'),
+      state: join(workerRoot, 'state'),
+      logs: join(workerRoot, 'logs'),
+      credentials: join(workerRoot, 'credentials'),
+      config: join(workerRoot, 'config'),
+      keys: join(workerRoot, 'keys'),
     };
   }
 
   /**
-   * Initialize the sandbox directories
+   * Initialize the sandbox directories and generate instance keys
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -76,7 +89,13 @@ export class WorkerSandbox {
       mkdir(this.paths.cache, { recursive: true }),
       mkdir(this.paths.state, { recursive: true }),
       mkdir(this.paths.logs, { recursive: true }),
+      mkdir(this.paths.credentials, { recursive: true }),
+      mkdir(this.paths.config, { recursive: true }),
+      mkdir(this.paths.keys, { recursive: true }),
     ]);
+
+    // Generate instance keys if they don't exist
+    const keys = await this.getOrCreateInstanceKeys();
 
     // Write or update metadata
     const metadata: SandboxMetadata = {
@@ -84,6 +103,7 @@ export class WorkerSandbox {
       createdAt: Date.now(),
       lastAccessed: Date.now(),
       version: SANDBOX_VERSION,
+      keyFingerprint: keys.fingerprint,
     };
 
     const existingMetadata = await this.getMetadata();
@@ -125,6 +145,66 @@ export class WorkerSandbox {
       metadata.lastAccessed = Date.now();
       await this.writeMetadata(metadata);
     }
+  }
+
+  /**
+   * Get or create instance private keys for this worker.
+   * Keys are persisted to disk and reused across restarts.
+   */
+  async getOrCreateInstanceKeys(): Promise<InstanceKeys> {
+    const keyPath = join(this.paths.keys, 'instance.key');
+    const idPath = join(this.paths.keys, 'instance.id');
+
+    try {
+      // Try to read existing keys
+      const [privateKeyHex, instanceId] = await Promise.all([
+        readFile(keyPath, 'utf-8'),
+        readFile(idPath, 'utf-8'),
+      ]);
+      const privateKey = Buffer.from(privateKeyHex.trim(), 'hex');
+      const fingerprint = privateKey.subarray(0, 8).toString('hex');
+      return {
+        privateKey,
+        instanceId: instanceId.trim(),
+        fingerprint,
+      };
+    } catch {
+      // Generate new keys
+      return this.generateInstanceKeys();
+    }
+  }
+
+  /**
+   * Generate new instance private keys.
+   * Creates a 32-byte private key and a unique instance ID.
+   */
+  private async generateInstanceKeys(): Promise<InstanceKeys> {
+    const keyPath = join(this.paths.keys, 'instance.key');
+    const idPath = join(this.paths.keys, 'instance.id');
+
+    // Generate 32 bytes for private key (256-bit)
+    const privateKey = randomBytes(32);
+    const fingerprint = privateKey.subarray(0, 8).toString('hex');
+    // Instance ID: workerId + timestamp + random suffix
+    const instanceId = `${this.workerId}-${Date.now()}-${randomBytes(4).toString('hex')}`;
+
+    // Persist to disk (hex-encoded for readability)
+    await Promise.all([
+      writeFile(keyPath, privateKey.toString('hex'), { mode: 0o600 }),
+      writeFile(idPath, instanceId, { mode: 0o600 }),
+    ]);
+
+    return { privateKey, instanceId, fingerprint };
+  }
+
+  /**
+   * Get instance keys (throws if not initialized)
+   */
+  async getInstanceKeys(): Promise<InstanceKeys> {
+    if (!this.initialized) {
+      throw new Error('Sandbox not initialized - call initialize() first');
+    }
+    return this.getOrCreateInstanceKeys();
   }
 
   /**
@@ -274,22 +354,50 @@ export class WorkerSandbox {
   }
 
   /**
-   * Get environment variables for isolated execution
+   * Get environment variables for isolated execution.
+   * Provides full credential and config isolation per worker.
    */
   getEnvironment(): Record<string, string> {
     return {
+      // Worker identification
       MOLTBOT_WORKER_ID: this.workerId,
       MOLTBOT_SANDBOX_ROOT: this.paths.root,
+
+      // Storage paths
       MOLTBOT_SESSIONS_DIR: this.paths.sessions,
       MOLTBOT_TEMP_DIR: this.paths.temp,
       MOLTBOT_CACHE_DIR: this.paths.cache,
       MOLTBOT_STATE_DIR: this.paths.state,
       MOLTBOT_LOGS_DIR: this.paths.logs,
-      // Override HOME-based paths to use sandbox
+
+      // Credential and config isolation (critical for multi-instance)
+      MOLTBOT_CREDENTIALS_DIR: this.paths.credentials,
+      MOLTBOT_CONFIG_DIR: this.paths.config,
+      MOLTBOT_KEYS_DIR: this.paths.keys,
+
+      // Override standard paths to isolate credentials
+      CLAWDBOT_OAUTH_DIR: this.paths.credentials,
+      XDG_CONFIG_HOME: this.paths.config,
       XDG_DATA_HOME: this.paths.state,
       XDG_CACHE_HOME: this.paths.cache,
       TMPDIR: this.paths.temp,
     };
+  }
+
+  /**
+   * Get path for credential file
+   */
+  getCredentialPath(name: string): string {
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return join(this.paths.credentials, safeName);
+  }
+
+  /**
+   * Get path for config file
+   */
+  getConfigPath(name: string): string {
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return join(this.paths.config, safeName);
   }
 }
 
