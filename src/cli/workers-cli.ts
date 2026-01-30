@@ -76,6 +76,65 @@ function printStatus(status: WorkerPoolStatus, json: boolean): void {
   console.log('');
 }
 
+/** Run worker pool in production mode */
+async function runWorkers(opts: {
+  workers: number;
+  sandboxDir: string;
+  config?: string;
+}): Promise<void> {
+  console.log('\x1b[1mStarting Worker Pool\x1b[0m');
+  console.log(`Workers: ${opts.workers}`);
+  console.log(`Sandbox: ${opts.sandboxDir}`);
+  if (opts.config) {
+    console.log(`Config:  ${opts.config}`);
+  }
+  console.log('');
+
+  const router = createGatewayRouter({
+    poolConfig: {
+      workerCount: opts.workers,
+      sandboxBaseDir: opts.sandboxDir,
+    },
+  });
+
+  console.log('Starting worker pool...');
+  await router.start();
+
+  const status = router.getStatus();
+  if (status) {
+    printStatus(status, false);
+  }
+
+  console.log('\x1b[32mWorker pool running.\x1b[0m Press Ctrl+C to stop...\n');
+
+  // Periodic status updates
+  const statusInterval = setInterval(() => {
+    const currentStatus = router.getStatus();
+    if (currentStatus) {
+      const healthy = currentStatus.healthyWorkers;
+      const total = currentStatus.totalWorkers;
+      const queued = currentStatus.queuedRequests;
+      console.log(
+        `[${new Date().toISOString()}] Workers: ${healthy}/${total} healthy, ${queued} queued`
+      );
+    }
+  }, 30000); // Log status every 30 seconds
+
+  // Wait for shutdown signal
+  await new Promise<void>((resolve) => {
+    const shutdown = () => {
+      clearInterval(statusInterval);
+      resolve();
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  });
+
+  console.log('\nShutting down worker pool...');
+  await router.stop();
+  console.log('Worker pool stopped.');
+}
+
 /** Demo: run worker pool */
 async function runDemo(opts: {
   workers: number;
@@ -158,6 +217,29 @@ export function registerWorkersCli(program: Command): void {
   const workers = program
     .command('workers')
     .description('Manage worker pool with sticky routing');
+
+  workers
+    .command('run')
+    .description('Start the worker pool')
+    .option('-w, --workers <count>', 'Number of workers', '4')
+    .option(
+      '-s, --sandbox-dir <dir>',
+      'Sandbox base directory',
+      '/tmp/moltbot-workers'
+    )
+    .option('-c, --config <path>', 'Path to config file')
+    .action(async (opts) => {
+      try {
+        await runWorkers({
+          workers: parseInt(opts.workers, 10),
+          sandboxDir: opts.sandboxDir,
+          config: opts.config,
+        });
+      } catch (error) {
+        console.error('Error:', error);
+        process.exit(1);
+      }
+    });
 
   workers
     .command('demo')
@@ -256,6 +338,7 @@ The worker pool provides sticky routing with isolated sandboxes:
   gateway.workers.sandboxDir: /var/moltbot/workers
 
 \x1b[1mCommands:\x1b[0m
+  moltbot workers run       Start the worker pool
   moltbot workers demo      Run a demo of the worker pool
   moltbot workers status    Show worker pool status
   moltbot workers route     Check routing for a user ID
