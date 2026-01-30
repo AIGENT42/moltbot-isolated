@@ -6,14 +6,31 @@
  * - Temporary files directory
  * - Cache directory
  * - State files
+ * - Credentials (API keys)
  *
  * No shared mutable state between workers.
  */
 
-import { mkdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
-import type { WorkerId, InstanceKeys } from './types.js';
+import { mkdir, rm, stat, writeFile, readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import type { WorkerId, InstanceKeys } from "./types.js";
+
+/**
+ * API keys that should be initialized from parent environment into worker sandbox.
+ * These are written to the sandbox's .env file during initialization.
+ */
+const INJECTABLE_API_KEYS = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "ZAI_API_KEY",
+  "MINIMAX_API_KEY",
+  "MOONSHOT_API_KEY",
+  "VENICE_API_KEY",
+  "SYNTHETIC_API_KEY",
+];
 
 /** Sandbox directory structure */
 export interface SandboxPaths {
@@ -48,7 +65,7 @@ export interface SandboxMetadata {
 }
 
 const SANDBOX_VERSION = 1;
-const METADATA_FILE = 'sandbox.json';
+const METADATA_FILE = "sandbox.json";
 
 /**
  * Worker Sandbox - manages isolated filesystem for a worker
@@ -63,14 +80,14 @@ export class WorkerSandbox {
     const workerRoot = join(baseDir, workerId);
     this.paths = {
       root: workerRoot,
-      sessions: join(workerRoot, 'sessions'),
-      temp: join(workerRoot, 'temp'),
-      cache: join(workerRoot, 'cache'),
-      state: join(workerRoot, 'state'),
-      logs: join(workerRoot, 'logs'),
-      credentials: join(workerRoot, 'credentials'),
-      config: join(workerRoot, 'config'),
-      keys: join(workerRoot, 'keys'),
+      sessions: join(workerRoot, "sessions"),
+      temp: join(workerRoot, "temp"),
+      cache: join(workerRoot, "cache"),
+      state: join(workerRoot, "state"),
+      logs: join(workerRoot, "logs"),
+      credentials: join(workerRoot, "credentials"),
+      config: join(workerRoot, "config"),
+      keys: join(workerRoot, "keys"),
     };
   }
 
@@ -97,6 +114,9 @@ export class WorkerSandbox {
     // Generate instance keys if they don't exist
     const keys = await this.getOrCreateInstanceKeys();
 
+    // Initialize API keys from parent environment
+    await this.initializeCredentials();
+
     // Write or update metadata
     const metadata: SandboxMetadata = {
       workerId: this.workerId,
@@ -116,12 +136,54 @@ export class WorkerSandbox {
   }
 
   /**
+   * Initialize credentials from parent environment into sandbox.
+   * This copies API keys from the parent process environment to the
+   * sandbox's .env file, making them available to the worker process.
+   */
+  private async initializeCredentials(): Promise<void> {
+    const envPath = join(this.paths.config, ".env");
+    const lines: string[] = [];
+
+    // Read existing .env if present
+    try {
+      const existing = await readFile(envPath, "utf-8");
+      lines.push(...existing.split("\n").filter((line) => line.trim()));
+    } catch {
+      // No existing .env file
+    }
+
+    // Collect API keys from parent environment
+    for (const key of INJECTABLE_API_KEYS) {
+      const value = process.env[key];
+      if (!value) continue;
+
+      // Check if already in lines (avoid duplicates)
+      const existingIndex = lines.findIndex(
+        (line) => line.startsWith(`${key}=`) || line.startsWith(`export ${key}=`),
+      );
+
+      if (existingIndex >= 0) {
+        // Update existing
+        lines[existingIndex] = `${key}=${value}`;
+      } else {
+        // Add new
+        lines.push(`${key}=${value}`);
+      }
+    }
+
+    // Write .env file if we have any keys
+    if (lines.length > 0) {
+      await writeFile(envPath, lines.join("\n") + "\n", { mode: 0o600 });
+    }
+  }
+
+  /**
    * Get sandbox metadata
    */
   async getMetadata(): Promise<SandboxMetadata | null> {
     try {
       const metadataPath = join(this.paths.root, METADATA_FILE);
-      const content = await readFile(metadataPath, 'utf-8');
+      const content = await readFile(metadataPath, "utf-8");
       return JSON.parse(content) as SandboxMetadata;
     } catch {
       return null;
@@ -152,17 +214,17 @@ export class WorkerSandbox {
    * Keys are persisted to disk and reused across restarts.
    */
   async getOrCreateInstanceKeys(): Promise<InstanceKeys> {
-    const keyPath = join(this.paths.keys, 'instance.key');
-    const idPath = join(this.paths.keys, 'instance.id');
+    const keyPath = join(this.paths.keys, "instance.key");
+    const idPath = join(this.paths.keys, "instance.id");
 
     try {
       // Try to read existing keys
       const [privateKeyHex, instanceId] = await Promise.all([
-        readFile(keyPath, 'utf-8'),
-        readFile(idPath, 'utf-8'),
+        readFile(keyPath, "utf-8"),
+        readFile(idPath, "utf-8"),
       ]);
-      const privateKey = Buffer.from(privateKeyHex.trim(), 'hex');
-      const fingerprint = privateKey.subarray(0, 8).toString('hex');
+      const privateKey = Buffer.from(privateKeyHex.trim(), "hex");
+      const fingerprint = privateKey.subarray(0, 8).toString("hex");
       return {
         privateKey,
         instanceId: instanceId.trim(),
@@ -179,18 +241,18 @@ export class WorkerSandbox {
    * Creates a 32-byte private key and a unique instance ID.
    */
   private async generateInstanceKeys(): Promise<InstanceKeys> {
-    const keyPath = join(this.paths.keys, 'instance.key');
-    const idPath = join(this.paths.keys, 'instance.id');
+    const keyPath = join(this.paths.keys, "instance.key");
+    const idPath = join(this.paths.keys, "instance.id");
 
     // Generate 32 bytes for private key (256-bit)
     const privateKey = randomBytes(32);
-    const fingerprint = privateKey.subarray(0, 8).toString('hex');
+    const fingerprint = privateKey.subarray(0, 8).toString("hex");
     // Instance ID: workerId + timestamp + random suffix
-    const instanceId = `${this.workerId}-${Date.now()}-${randomBytes(4).toString('hex')}`;
+    const instanceId = `${this.workerId}-${Date.now()}-${randomBytes(4).toString("hex")}`;
 
     // Persist to disk (hex-encoded for readability)
     await Promise.all([
-      writeFile(keyPath, privateKey.toString('hex'), { mode: 0o600 }),
+      writeFile(keyPath, privateKey.toString("hex"), { mode: 0o600 }),
       writeFile(idPath, instanceId, { mode: 0o600 }),
     ]);
 
@@ -202,7 +264,7 @@ export class WorkerSandbox {
    */
   async getInstanceKeys(): Promise<InstanceKeys> {
     if (!this.initialized) {
-      throw new Error('Sandbox not initialized - call initialize() first');
+      throw new Error("Sandbox not initialized - call initialize() first");
     }
     return this.getOrCreateInstanceKeys();
   }
@@ -212,7 +274,7 @@ export class WorkerSandbox {
    */
   getSessionPath(sessionId: string): string {
     // Sanitize session ID to prevent path traversal
-    const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
     return join(this.paths.sessions, `${safeId}.json`);
   }
 
@@ -220,7 +282,7 @@ export class WorkerSandbox {
    * Get path for a temp file
    */
   getTempPath(filename: string): string {
-    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     return join(this.paths.temp, safeFilename);
   }
 
@@ -228,7 +290,7 @@ export class WorkerSandbox {
    * Get path for a cache file
    */
   getCachePath(key: string): string {
-    const safeKey = key.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeKey = key.replace(/[^a-zA-Z0-9._-]/g, "_");
     return join(this.paths.cache, safeKey);
   }
 
@@ -236,7 +298,7 @@ export class WorkerSandbox {
    * Get path for a state file
    */
   getStatePath(name: string): string {
-    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
     return join(this.paths.state, `${safeName}.json`);
   }
 
@@ -244,7 +306,7 @@ export class WorkerSandbox {
    * Get path for a log file
    */
   getLogPath(name: string): string {
-    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
     return join(this.paths.logs, `${safeName}.log`);
   }
 
@@ -254,7 +316,7 @@ export class WorkerSandbox {
   async readState<T>(name: string): Promise<T | null> {
     try {
       const path = this.getStatePath(name);
-      const content = await readFile(path, 'utf-8');
+      const content = await readFile(path, "utf-8");
       return JSON.parse(content) as T;
     } catch {
       return null;
@@ -320,15 +382,16 @@ export class WorkerSandbox {
 
     const getDirSize = async (dir: string): Promise<number> => {
       try {
-        const { stdout } = await import('node:child_process').then((cp) =>
-          new Promise<{ stdout: string }>((resolve, reject) => {
-            cp.exec(`du -sb "${dir}" 2>/dev/null || echo "0"`, (err, stdout) => {
-              if (err) reject(err);
-              else resolve({ stdout });
-            });
-          })
+        const { stdout } = await import("node:child_process").then(
+          (cp) =>
+            new Promise<{ stdout: string }>((resolve, reject) => {
+              cp.exec(`du -sb "${dir}" 2>/dev/null || echo "0"`, (err, stdout) => {
+                if (err) reject(err);
+                else resolve({ stdout });
+              });
+            }),
         );
-        const size = parseInt(stdout.split('\t')[0], 10);
+        const size = parseInt(stdout.split("\t")[0], 10);
         return isNaN(size) ? 0 : size;
       } catch {
         return 0;
@@ -388,7 +451,7 @@ export class WorkerSandbox {
    * Get path for credential file
    */
   getCredentialPath(name: string): string {
-    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
     return join(this.paths.credentials, safeName);
   }
 
@@ -396,7 +459,7 @@ export class WorkerSandbox {
    * Get path for config file
    */
   getConfigPath(name: string): string {
-    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
     return join(this.paths.config, safeName);
   }
 }
@@ -466,7 +529,7 @@ export class SandboxManager {
    * Clean up old/unused sandboxes
    */
   async cleanup(maxAge: number): Promise<WorkerId[]> {
-    const { readdir } = await import('node:fs/promises');
+    const { readdir } = await import("node:fs/promises");
     const cleaned: WorkerId[] = [];
     const now = Date.now();
 
