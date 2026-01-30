@@ -1,0 +1,47 @@
+{
+  "gateway": {
+    "port": 18789,
+    "bind": "loopback",
+    "mode": "local",
+    "controlUi": {
+      "enabled": true
+    },
+    "auth": {
+      "mode": "token"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      },
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "thinkingDefault": "off",
+      "verboseDefault": "off",
+      "elevatedDefault": "off",
+      "blockStreamingDefault": "off",
+      "typingMode": "thinking"
+    }
+  },
+  "session": {
+    "scope": "per-sender",
+    "dmScope": "main",
+    "typingMode": "thinking"
+  },
+  "logging": {
+    "level": "info",
+    "consoleLevel": "info",
+    "consoleStyle": "pretty",
+    "redactSensitive": "tools"
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "update": {
+    "channel": "stable",
+    "checkOnStart": true
+  }
+}
